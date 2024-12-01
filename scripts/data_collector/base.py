@@ -399,6 +399,7 @@ class BaseRun(abc.ABC):
         """
 
         _class = getattr(self._cur_module, self.collector_class_name)  # type: Type[BaseCollector]
+        logger.info(f"Start download data, class: {_class}")
         _class(
             self.source_dir,
             max_workers=self.max_workers,

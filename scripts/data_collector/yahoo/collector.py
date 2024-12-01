@@ -293,9 +293,9 @@ class YahooCollectorUS1min(YahooCollectorUS):
 
 class YahooCollectorIN(YahooCollector, ABC):
     def get_instrument_list(self):
-        logger.info("get INDIA stock symbols......")
+        logger.info("Getting INDIA stock symbols......")
         symbols = get_in_stock_symbols()
-        logger.info(f"get {len(symbols)} symbols.")
+        logger.info(f"Got {len(symbols)} symbols.")
         return symbols
 
     def download_index_data(self):

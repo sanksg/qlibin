@@ -2,6 +2,7 @@
 #  Licensed under the MIT License.
 
 import re
+import io
 import copy
 import importlib
 import time
@@ -327,9 +328,9 @@ def get_us_stock_symbols(qlib_data_path: [str, Path] = None) -> list:
 
         def _format(s_):
             s_ = s_.replace(".", "-")
+            return s_
             s_ = s_.strip("$")
             s_ = s_.strip("*")
-            return s_
 
         _US_SYMBOLS = sorted(set(map(_format, filter(lambda x: len(x) < 8 and not x.endswith("WS"), _all_symbols))))
 
@@ -347,24 +348,38 @@ def get_in_stock_symbols(qlib_data_path: [str, Path] = None) -> list:
 
     @deco_retry
     def _get_nifty():
-        url = f"https://www1.nseindia.com/content/equities/EQUITY_L.csv"
-        df = pd.read_csv(url)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        }
+        url = f"https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv"
+        logger.info(f"Getting NIFTY 50 symbols from {url}")
+        response = requests.get(url, headers=headers)
+        df = pd.read_csv(io.StringIO(response.text))
+
         df = df.rename(columns={"SYMBOL": "Symbol"})
         df["Symbol"] = df["Symbol"] + ".NS"
         _symbols = df["Symbol"].dropna()
+        logger.info(f"NIFTY has {len(_symbols)} symbols")
         _symbols = _symbols.unique().tolist()
         return _symbols
 
     if _IN_SYMBOLS is None:
         _all_symbols = _get_nifty()
         if qlib_data_path is not None:
-            for _index in ["nifty"]:
-                ins_df = pd.read_csv(
-                    Path(qlib_data_path).joinpath(f"instruments/{_index}.txt"),
-                    sep="\t",
-                    names=["symbol", "start_date", "end_date"],
-                )
-                _all_symbols += ins_df["symbol"].unique().tolist()
+            nifty_file = Path(qlib_data_path).joinpath("instruments/nifty.txt")
+            try:
+                # Explicitly check if file exists before reading
+                if nifty_file.exists():
+                    ins_df = pd.read_csv(
+                        nifty_file,
+                        sep="\t",
+                        names=["symbol", "start_date", "end_date"],
+                    )
+                    _all_symbols += ins_df["symbol"].unique().tolist()
+                else:
+                    logger.warning(f"Nifty instruments file not found: {nifty_file}")
+            except Exception as e:
+                logger.error(f"Error reading nifty instruments file: {e}")
 
         def _format(s_):
             s_ = s_.replace(".", "-")
