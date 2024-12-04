@@ -135,7 +135,11 @@ class DumpDataBase:
 
     def _get_source_data(self, file_path: Path) -> pd.DataFrame:
         df = pd.read_csv(str(file_path.resolve()), low_memory=False)
-        df[self.date_field_name] = df[self.date_field_name].astype(str).astype("datetime64[ns]")
+        df[self.date_field_name] = pd.to_datetime(
+                                        df[self.date_field_name], 
+                                        format='mixed', 
+                                        errors='coerce'
+                                    ).values.astype('datetime64[ns]')
         # df.drop_duplicates([self.date_field_name], inplace=True)
         return df
 
@@ -276,17 +280,27 @@ class DumpDataAll(DumpDataBase):
         _fun = partial(self._get_date, as_set=True, is_begin_end=True)
         with tqdm(total=len(self.csv_files)) as p_bar:
             with ProcessPoolExecutor(max_workers=self.works) as executor:
-                for file_path, ((_begin_time, _end_time), _set_calendars) in zip(
-                    self.csv_files, executor.map(_fun, self.csv_files)
-                ):
-                    all_datetime = all_datetime | _set_calendars
-                    if isinstance(_begin_time, pd.Timestamp) and isinstance(_end_time, pd.Timestamp):
-                        _begin_time = self._format_datetime(_begin_time)
-                        _end_time = self._format_datetime(_end_time)
-                        symbol = self.get_symbol_from_file(file_path)
-                        _inst_fields = [symbol.upper(), _begin_time, _end_time]
-                        date_range_list.append(f"{self.INSTRUMENTS_SEP.join(_inst_fields)}")
-                    p_bar.update()
+                try:
+                    for file_path, ((_begin_time, _end_time), _set_calendars) in zip(
+                        self.csv_files, executor.map(_fun, self.csv_files)
+                    ):
+                        try:
+                            logger.info(f"{file_path} begin: {_begin_time}, end: {_end_time}")
+                            all_datetime = all_datetime | _set_calendars
+                            if isinstance(_begin_time, pd.Timestamp) and isinstance(_end_time, pd.Timestamp):
+                                _begin_time = self._format_datetime(_begin_time)
+                                _end_time = self._format_datetime(_end_time)
+                                symbol = self.get_symbol_from_file(file_path)
+                                _inst_fields = [symbol.upper(), _begin_time, _end_time]
+                                date_range_list.append(f"{self.INSTRUMENTS_SEP.join(_inst_fields)}")
+                            p_bar.update()
+                        except Exception as inner_e:
+                            logger.error(f"Error processing file {file_path}: {inner_e}")
+                            raise
+                except Exception as outer_e:
+                    logger.error(f"Unhandled error in file processing: {outer_e}")
+                    raise
+
         self._kwargs["all_datetime_set"] = all_datetime
         self._kwargs["date_range_list"] = date_range_list
         logger.info("end of get all date.\n")

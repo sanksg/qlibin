@@ -347,37 +347,39 @@ def get_in_stock_symbols(qlib_data_path: [str, Path] = None) -> list:
     global _IN_SYMBOLS  # pylint: disable=W0603
 
     @deco_retry
-    def _get_nifty():
+    def _get_nse():
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         }
-        url = f"https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv"
-        logger.info(f"Getting NIFTY 50 symbols from {url}")
-        response = requests.get(url, headers=headers)
+        # nifty_url = f"https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv"
+        equities_url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+         
+        logger.info(f"Getting ALL NSE symbols from {equities_url}")
+        response = requests.get(equities_url, headers=headers)
         df = pd.read_csv(io.StringIO(response.text))
 
         df = df.rename(columns={"SYMBOL": "Symbol"})
         df["Symbol"] = df["Symbol"] + ".NS"
         _symbols = df["Symbol"].dropna()
-        logger.info(f"NIFTY has {len(_symbols)} symbols")
+        logger.info(f"NSE has {len(_symbols)} symbols")
         _symbols = _symbols.unique().tolist()
         return _symbols
 
     if _IN_SYMBOLS is None:
-        _all_symbols = _get_nifty()
+        _all_symbols = _get_nse()
         if qlib_data_path is not None:
-            nifty_file = Path(qlib_data_path).joinpath("instruments/nifty.txt")
+            nse_file = Path(qlib_data_path).joinpath("instruments/nse.txt")
             try:
                 # Explicitly check if file exists before reading
-                if nifty_file.exists():
+                if nse_file.exists():
                     ins_df = pd.read_csv(
-                        nifty_file,
+                        nse_file,
                         sep="\t",
                         names=["symbol", "start_date", "end_date"],
                     )
                     _all_symbols += ins_df["symbol"].unique().tolist()
                 else:
-                    logger.warning(f"Nifty instruments file not found: {nifty_file}")
+                    logger.warning(f"NSE instruments file not found: {nse_file}")
             except Exception as e:
                 logger.error(f"Error reading nifty instruments file: {e}")
 
@@ -390,6 +392,110 @@ def get_in_stock_symbols(qlib_data_path: [str, Path] = None) -> list:
         _IN_SYMBOLS = sorted(set(_all_symbols))
 
     return _IN_SYMBOLS
+
+
+def get_india_index_symbols(
+    index_name: str, 
+    index_url: str, 
+    qlib_data_path: [str, Path] = None
+) -> list:
+    """
+    Retrieve stock symbols for a given stock index.
+
+    Parameters
+    ----------
+    index_name : str
+        Name of the stock index (e.g., 'nse', 'nifty')
+    index_url : str
+        URL to download the stock symbols CSV
+    qlib_data_path : str or Path, optional
+        Path to the Qlib data directory
+
+    Returns
+    -------
+    list
+        List of unique stock symbols
+    """
+    # Use a global variable specific to the index name to allow caching
+    global _STOCK_SYMBOLS
+    if not hasattr(globals(), '_STOCK_SYMBOLS'):
+        _STOCK_SYMBOLS = {}
+
+    @deco_retry
+    def _get_symbols():
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        }
+        
+        logger.info(f"Getting {index_name.upper()} symbols from {index_url}")
+        response = requests.get(index_url, headers=headers)
+        df = pd.read_csv(io.StringIO(response.text))
+
+        # Attempt to handle different CSV formats
+        symbol_columns = ['SYMBOL', 'Symbol', 'symbol']
+        symbol_col = next((col for col in symbol_columns if col in df.columns), None)
+        
+        if symbol_col is None:
+            raise ValueError(f"Could not find symbol column in {index_name} CSV")
+
+        # Standardize symbol column name
+        df = df.rename(columns={symbol_col: 'Symbol'})
+        
+        # Add exchange suffix if not already present
+        if not df['Symbol'].str.contains(r'\.[A-Z]+$').all():
+            df['Symbol'] = df['Symbol'] + f".{index_name.upper()}"
+        
+        _symbols = df['Symbol'].dropna()
+        logger.info(f"{index_name.upper()} has {len(_symbols)} symbols")
+        _symbols = _symbols.unique().tolist()
+        return _symbols
+
+    # Check if symbols for this index are already cached
+    if index_name not in _STOCK_SYMBOLS:
+        # Retrieve symbols
+        _all_symbols = _get_symbols()
+
+        # If qlib_data_path is provided, check for additional symbols in instruments file
+        if qlib_data_path is not None:
+            # Ensure the instruments directory exists
+            instruments_dir = Path(qlib_data_path).joinpath("instruments")
+            instruments_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Path for the specific index instruments file
+            index_file = instruments_dir.joinpath(f"{index_name}.txt")
+            
+            try:
+                # Save downloaded symbols to the instruments file
+                with open(index_file, 'w') as f:
+                    for symbol in _all_symbols:
+                        # Optionally, you could add placeholder start/end dates
+                        f.write(f"{symbol}\t1990-01-01\t2099-12-31\n")
+                
+                logger.info(f"Saved {index_name} symbols to {index_file}")
+
+                # If an existing instruments file exists, merge symbols
+                if index_file.exists():
+                    ins_df = pd.read_csv(
+                        index_file,
+                        sep="\t",
+                        names=["symbol", "start_date", "end_date"],
+                    )
+                    _all_symbols += ins_df["symbol"].unique().tolist()
+            except Exception as e:
+                logger.error(f"Error saving/reading {index_name} instruments file: {e}")
+
+        # Clean and format symbols
+        def _format(s_):
+            s_ = s_.replace(".", "-")
+            s_ = s_.strip("$")
+            s_ = s_.strip("*")
+            return s_
+
+        # Cache and sort unique symbols for this index
+        _STOCK_SYMBOLS[index_name] = sorted(set(_all_symbols))
+
+    return _STOCK_SYMBOLS[index_name]
+
 
 
 def get_br_stock_symbols(qlib_data_path: [str, Path] = None) -> list:

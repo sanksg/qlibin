@@ -295,6 +295,7 @@ class YahooCollectorIN(YahooCollector, ABC):
     def get_instrument_list(self):
         logger.info("Getting INDIA stock symbols......")
         symbols = get_in_stock_symbols()
+        symbols = list(set(symbols + ['^BSESN', '^NSEI', '^CRSLDX'])) # Add BSE SENSEX and NIFTY benchmark indices
         logger.info(f"Got {len(symbols)} symbols.")
         return symbols
 
