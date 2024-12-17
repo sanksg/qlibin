@@ -443,7 +443,7 @@ def get_india_index_symbols(
         
         # Add exchange suffix if not already present
         if not df['Symbol'].str.contains(r'\.[A-Z]+$').all():
-            df['Symbol'] = df['Symbol'] + f".{index_name.upper()}"
+            df['Symbol'] = df['Symbol'] + ".NS"
         
         _symbols = df['Symbol'].dropna()
         logger.info(f"{index_name.upper()} has {len(_symbols)} symbols")
